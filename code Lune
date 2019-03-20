@@ -1,0 +1,283 @@
+//temps
+#include "RTClib.h"
+#include <Adafruit_NeoPixel.h>
+RTC_DS3231 rtc;
+
+//moteur pas à pas
+#include<Stepper.h> //bibliothèque du moteur
+const int nombrePas = 2048; //2048 corr à 1tour complet (1pas = 0.17° || 2048pas/360°) 24h = 2048 pas d'où 1h=85.34 pas 
+Stepper monMoteur(nombrePas, 3, 5, 4, 6);
+
+
+//Bluetooth
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(10, 9, NEO_GRB + NEO_KHZ800);
+#include<SoftwareSerial.h>
+#define RX 10
+#define TX 11
+SoftwareSerial BlueT(RX,TX);
+char Data;
+
+//detecteur obstacle
+#include <Wire.h>
+int LED = 13; // Utilise la LED sur la plaque arduino
+int isObstaclePin = 7;  // input pin
+int isObstacle = HIGH;  // HIGH MEANS NO OBSTACLE
+
+//lumières
+int red=0;
+int green=0;
+int blue=0;
+
+ 
+ bool bouge=false;
+
+  bool P=false;
+  bool D=false;
+  bool H=false;
+  bool R=false;
+
+  bool prem_heure=true;
+//////////////////////////////////////////////////////////////////////////////////
+
+void setup() {
+
+  strip.begin();
+  strip.show(); // Initialise toute les led à 'off'
+
+ // DateTime now = rtc.now();
+  
+  rtc.begin();  //mettre l'heure
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); //met à l'heure de l'ordi
+ 
+  monMoteur.setSpeed(15);//15 tour complet max par minute 
+  
+  pinMode(LED, OUTPUT);
+  pinMode(isObstaclePin, INPUT);
+  
+  Serial.begin(9600);
+  BlueT.begin(9600); 
+  
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+
+void loop() {
+  DateTime now = rtc.now();
+  int nowheure=now.hour();
+  prem_heure=true; //pour la présentation
+  
+  while (BlueT.available()){
+    Data = BlueT.read();
+    Serial.println(Data);
+    if (Data=='P' ){ //Cadran lunaire selon la date
+      D=false;
+      H=false;
+      R=false;
+      P=true;
+    }
+    if (Data=='D' ){ //Cadran lunaire selon la date
+      D=true;
+      H=false;
+      R=false;
+      P=false;
+    }
+    if (Data=='H'){ //Cadran lunaire selon l'heure ac lumières
+      D=false;
+      H=true;
+      R=false;
+      P=false;
+    }
+    if (Data=='R'){ //Réveil_DISCO
+      D=false;
+      H=false;
+      R=true;
+      P=false;
+    }
+    while (P==true){
+      D=false;
+      H=false;
+      R=false;
+      for(int i = 0; i < 10; i++ ) { // On fait une boucle pour définir la couleur de chaque led
+        strip.setPixelColor(i, 0, 50, 0); 
+      }
+      strip.show();
+      
+      isObstacle = digitalRead(isObstaclePin);      
+      while(isObstacle==HIGH){ //tant qu'il n'y a pas d'obstacle
+        digitalWrite(LED, LOW);
+        Serial.print("pas d'obstacle");
+        isObstacle = digitalRead(isObstaclePin);
+        monMoteur.step(10);  //va à la position initiale ///////
+      }
+        monMoteur.step(nombrePas/24);  //va à la position initiale //////
+        delay(300);
+      P=false;
+    
+    }
+    
+    while (D==true){
+      H=false;
+      R=false;
+      P=false;
+      for(int i = 0; i < 10; i++ ) { // On fait une boucle pour définir la couleur de chaque led
+        strip.setPixelColor(i, 0, 0,0);   
+      }    
+      for(int i = 0; i < 10; i++ ) { // On fait une boucle pour définir la couleur de chaque led
+        strip.setPixelColor(i, 50, 50,50); 
+      }
+      strip.show(); // on allume les leds
+     int jour=duree(6,3,2019,now.day(),now.month(),now.year())%29; 
+      monMoteur.step(jour*(nombrePas/29));
+      
+    
+    delay(100);
+    D=false;
+    }
+                    
+    while (H==true){
+      D=false;
+      P=false;
+      R=false;
+      
+      if(now.hour()<=12){        
+        for(int i = 0; i < 10; i++ ) { // On fait une boucle pour définir la couleur de chaque led
+          strip.setPixelColor(i, now.hour(), now.hour()/4, 1/(now.hour()+1));       
+        }
+        strip.show(); // on allume les leds
+        delay(100);
+      }
+      if(now.hour()<=24 && now.hour()>12){
+        for(int i = 0; i < 10; i++ ) { // On fait une boucle pour définir la couleur de chaque led
+        strip.setPixelColor(i, 10/(now.hour()+1), now.hour()/4, now.hour());       
+        }
+        strip.show(); // on allume les leds
+        delay(100);
+      }
+      if (now.minute()==0 && now.second()==0){ //avance d'une heure        
+        Serial.println("bouge");        
+        monMoteur.step(nombrePas/24);
+        
+      }
+      if (prem_heure==true){ //cas initial avance de tant d'heure
+          monMoteur.step(now.hour()*(2048/24));
+          Serial.println(now.hour());
+          bouge=false;
+          prem_heure=false;
+      }
+      Data = BlueT.read();
+      if (Data=='P' || Data=='R' || Data=='D'){
+        H=false;
+      }
+    }
+  while(R==true){ //Met les led en mode DISCO
+      for(int i = 0; i < 10; i++ ) { // On fait une boucle pour définir la couleur de chaque led
+         // setPixelColor(n° de led, Rouge, Vert, Bleu)
+        strip.setPixelColor(i, random(0,220), random(0,220),random(0,220));       
+      }
+    strip.show(); // on allume les leds
+    delay(100);
+    Data = BlueT.read();
+    if (Data=='H' || Data=='P' || Data=='D'){
+        R=false;
+       
+    }
+ }
+  
+ }
+} 
+
+  
+
+/////////////////////////////////////////////////////////////////////////////////
+
+boolean fevrier=false;
+int duree( int j1, int m1, int a1, int j2, int m2,int a2){ 
+  int nbjour=0;
+  if(a2<a1){             //         27/02/2002           05/01/2000
+  //echangeons les dates 
+    int j;
+    j=j1;
+    j1=j2;
+    j2=j; //on a echangé les jours
+
+    int m;
+    m=m1;
+    m1=m2;
+    m2=m; //on a échangé les mois
+
+    int a;
+    a=a1;
+    a1=a2;
+    a2=a; //on a échangé les années
+  }
+  if(a1<a2){
+    nbjour+=jourparmois(m1,bissextile(a1))-j1;
+    while(m1+1<=12){
+      nbjour+=jourparmois(m1+1,bissextile(a1));      
+      m1+=1;
+    }
+    while(a1+1<a2){ //si on rentre pas dans le while c'est qu'il reste moins d'un ans
+      int i=1;
+      while(i<=12){
+        nbjour+=jourparmois(i,bissextile(a1+1));
+        i+=1;
+      }
+      a1+=1;
+    }//ici on est en a2
+    int j=1;
+    while(j<m2){
+      nbjour+=jourparmois(j,bissextile(a2));
+      j+=1;
+    }
+    nbjour+=j2;
+    return  nbjour;
+  }
+  if(a1==a2){
+    if(m1>m2){
+      int j;
+      j=j1;
+      j1=j2;
+      j2=j; //on a echangé les jours
+
+      int m;
+      m=m1;
+      m1=m2;
+      m2=m; //on a échangé les mois  
+    }
+    if(m1<m2){
+      nbjour=jourparmois(m1,bissextile(a1))-j1;
+      while(m1+1<m2){ //on ne compte pas deux fois le même fois
+        nbjour+=jourparmois(m1+1,bissextile(a2));
+        m1+=1;
+      }
+      return nbjour+=j2; //plus qu'à rajouter la date du jour
+    }
+    if(m1==m2){
+      return nbjour=abs(j2-j1);
+    }
+  }
+}
+  /*############################################################################*/
+  bool bissextile(int annee){
+   bool fevrier=false;
+    if(annee%4==0){ //divisible par 4, année bissextile
+      fevrier=true;
+    }
+    return fevrier;
+  }
+  /*############################################################################*/
+  int jourparmois( int mois, boolean annee){
+    int jour=30;
+    if(mois==1 || mois==3||mois==5||mois==7||mois==8||mois==10||mois==12){ //mois à 31jours 
+        return jour=31;
+    }
+    if (mois==2 && annee==true){
+       return jour=29;
+    }
+    if (mois==2 && annee==false){
+       return jour=28;
+    }
+    else{
+       return jour=30;
+    }
+  }
